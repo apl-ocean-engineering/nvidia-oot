@@ -22,6 +22,7 @@ obj-m += nv_ar0234.o
 obj-m += nv_hawk_owl.o
 obj-m += max929x.o
 obj-m += nv_ov5640.o
+obj-m += nv_ov9281.o
 endif
 
 obj-m += pca9570.o
