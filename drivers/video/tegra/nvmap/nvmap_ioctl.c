@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2011-2024, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2011-2026, NVIDIA CORPORATION. All rights reserved.
  *
  * User-space interface to nvmap
  */
@@ -1636,15 +1636,17 @@ int nvmap_ioctl_get_fd_from_list(struct file *filp, void __user *arg)
 
 	for (i = 0; i < op.num_handles; i++) {
 		hs[i] = nvmap_handle_get_from_id(client, hndls[i]);
-		tot_hs_size += hs[i]->size;
 		if (IS_ERR_OR_NULL(hs[i])) {
-			pr_err("invalid handle_ptr[%d] = %u\n",
-				i, hndls[i]);
-			while (i--)
-				nvmap_handle_put(hs[i]);
+			pr_err("Invalid input handle id: %u\n", hndls[i]);
+
+			/* Clean up handles (index i-1 to 0) */
+			while (i != 0)
+				nvmap_handle_put(hs[--i]);
+
 			err = -EINVAL;
 			goto free_mem;
 		}
+		tot_hs_size += hs[i]->size;
 	}
 
 	/* Add check for sizes of all the handles should be > offs and size */
