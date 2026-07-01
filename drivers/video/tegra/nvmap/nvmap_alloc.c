@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// SPDX-FileCopyrightText: Copyright (c) 2011-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2011-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 /*
  * Handle allocation and freeing routines for nvmap
  */
@@ -1331,6 +1331,7 @@ int nvmap_assign_pages_to_handle(struct nvmap_client *client,
 	size_t nr_page = h->size >> PAGE_SHIFT;
 	struct page **pages;
 	u64 end_cur = 0;
+	u64 avail = 0;
 	u64 start = 0;
 	u64 end = 0;
 	u32 pg_cnt = 0;
@@ -1357,13 +1358,21 @@ int nvmap_assign_pages_to_handle(struct nvmap_client *client,
 	end = rng->sz;
 
 	for (i = rng->start; i <= rng->end; i++) {
-		end_cur = (end >= hs[i]->size) ? (hs[i]->size - start) : end;
+		/*
+		 * Room left in this handle from offset "start". Bounding
+		 * end_cur by (hs[i]->size - start) instead of hs[i]->size
+		 * prevents copying past the end of the source handle (and past
+		 * the destination pages[] array) when start > 0, i.e. for the
+		 * first handle of the range.
+		 */
+		avail = hs[i]->size - start;
+		end_cur = (end >= avail) ? avail : end;
 		err = nvmap_assign_pages_per_handle(hs[i], h, start, start + end_cur, &pg_cnt);
 		if (err) {
 			nvmap_altfree(pages, nr_page * sizeof(*pages));
 			goto err_h;
 		}
-		end -= (hs[i]->size - start);
+		end -= end_cur;
 		start = 0;
 	}
 

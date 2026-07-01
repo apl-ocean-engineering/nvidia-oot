@@ -20,6 +20,7 @@
 #include <linux/highmem.h>
 #include <linux/mm.h>
 #include <linux/mman.h>
+#include <linux/overflow.h>
 
 #include <asm/io.h>
 #include <asm/memory.h>
@@ -1548,7 +1549,14 @@ static int find_range_of_handles(struct nvmap_handle **hs, u32 nr,
 	for (i = 0; i < nr; i++) {
 		tot_sz += hs[i]->size;
 		if (offs > tot_sz) {
-			hrange->offs_start -= tot_sz;
+			/*
+			 * Subtract only this handle's size (not the running
+			 * cumulative total) so offs_start stays as the offset
+			 * within the start handle. Using tot_sz here underflows
+			 * once more than one handle is skipped, later driving an
+			 * out-of-bounds source page read.
+			 */
+			hrange->offs_start -= hs[i]->size;
 			continue;
 		} else {
 			rem_sz = tot_sz - offs;
@@ -1588,6 +1596,7 @@ int nvmap_ioctl_get_fd_from_list(struct file *filp, void __user *arg)
 	struct nvmap_handle *h = NULL;
 	struct handles_range hrange = {0};
 	size_t tot_hs_size = 0;
+	u64 offs_end = 0;
 	u32 i, count = 0, flags = 0;
 	size_t bytes;
 	int err = 0;
@@ -1602,6 +1611,15 @@ int nvmap_ioctl_get_fd_from_list(struct file *filp, void __user *arg)
 
 	if (!op.handles || !op.num_handles
 		 || !op.size || op.num_handles > U32_MAX / sizeof(u32))
+		return -EINVAL;
+
+	/*
+	 * The offset must be page-aligned. The destination handle is sized to
+	 * PAGE_ALIGN(size), so a non-page-aligned offset makes the page copy
+	 * span one more page than the destination pages[] array can hold,
+	 * causing a kernel-heap out-of-bounds write.
+	 */
+	if (!IS_ALIGNED(op.offset, PAGE_SIZE))
 		return -EINVAL;
 
 	hrange.offs = op.offset;
@@ -1649,8 +1667,13 @@ int nvmap_ioctl_get_fd_from_list(struct file *filp, void __user *arg)
 		tot_hs_size += hs[i]->size;
 	}
 
-	/* Add check for sizes of all the handles should be > offs and size */
-	if (tot_hs_size < (hrange.offs + hrange.sz)) {
+	/*
+	 * The combined offset+size must fit within the total size of all the
+	 * supplied handles. Use check_add_overflow() so a crafted (offset, size)
+	 * pair cannot wrap around u64 and slip past this bound.
+	 */
+	if (check_add_overflow(hrange.offs, hrange.sz, &offs_end) ||
+	    tot_hs_size < offs_end) {
 		err = -EINVAL;
 		goto free_hs;
 	}
