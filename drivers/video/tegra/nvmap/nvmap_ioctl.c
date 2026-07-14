@@ -1548,7 +1548,7 @@ static int find_range_of_handles(struct nvmap_handle **hs, u32 nr,
 	/* Find start handle */
 	for (i = 0; i < nr; i++) {
 		tot_sz += hs[i]->size;
-		if (offs > tot_sz) {
+		if (offs >= tot_sz) {
 			/*
 			 * Subtract only this handle's size (not the running
 			 * cumulative total) so offs_start stays as the offset
